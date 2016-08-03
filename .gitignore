@@ -1,2 +1,5 @@
 node_modules/
 dump/
+public/css/bootstrap.min.css
+public/jquery/
+public/images/
