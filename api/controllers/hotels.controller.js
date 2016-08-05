@@ -20,7 +20,9 @@ module.exports.hotelsGetAll = function(req, res) {
 	}
 
 	if (count > maxCount) {
-		res.status(400).json({"message": "too many records requested. max is " + maxCount});
+		res.status(400).json({
+			"message": "too many records requested. max is " + maxCount
+		});
 		return;
 	}
 
@@ -39,47 +41,130 @@ module.exports.hotelsGetAll = function(req, res) {
 };
 
 module.exports.hotelsGetOne = function(req, res) {
+
 	var hotelId = req.params.hotelId;
 
 	Hotel.findById(hotelId).exec(function(err, hotel) {
-		console.log('found hotel');
-		res.json(hotel);
-	});
 
-	/*collection.findOne({
-		_id: hotelId
-	}, function(err, doc) {
-		res.status(200).json(doc);
-	});*/
+		var response = {
+			status: 200,
+			json: {}
+		};
+
+
+		if (err) {
+			console.log("error");
+			response.status = 500;
+			response.json = err;
+		} else if (!hotel) {
+			console.log("no hotel?");
+			response.status = 404;
+			response.json = {
+				"message": "Hotel not found"
+			};
+		} else {
+			response.json = hotel;
+			console.log(hotel);
+		}
+		console.log(response);
+		res.status(response.status).json(response.json);
+	});
 };
 
+var _splitArray = function(input) {
+	var output = [];
+
+	if (input && input.length > 0) {
+		output = input.split(';');
+	}
+	return output;
+};
 
 module.exports.hotelsAddOne = function(req, res) {
+	var newHotelObj = {};
+	setHotelObject(newHotelObj, req.body);
+	Hotel.create(
+		newHotelObj,
+		function(err, hotel) {
+		console.log('Hotel create callback');
+		if (err) {
+			console.log('fuckup creating hotel');
+			res.status(400).json(err);
+		} else {
+			console.log('created ' + hotel);
+			res.status(201).json(hotel);
+		}
+	});
+};
 
-	var db = dbConnection.get();
-	var collection = db.collection('hotels');
+module.exports.hotelsUpdateOne = function(req, res) {
 
-	var newHotel;
-	if (req.body && req.body.name && req.body.stars) {
-		newHotel = req.body;
-		newHotel.stars = parseInt(req.body.stars);
+	var hotelId = req.params.hotelId;
 
-		console.log(collection);
-		collection.insertOne(newHotel, function(err, result) {
-			res.status(201).json(result.ops);
+	Hotel.findById(hotelId)
+		.select('-reviews -rooms')
+		.exec(function(err, hotel) {
+
+			var response = {
+				status: 200,
+				json: {}
+			};
+
+
+			if (err) {
+				console.log("error");
+				response.status = 500;
+				response.json = err;
+			} else if (!hotel) {
+				console.log("no hotel?");
+				response.status = 404;
+				response.json = {
+					"message": "Hotel not found"
+				};
+			}
+
+			// If we get here and the res status has been changed from 200, just return it
+			if (response.status !== 200) {
+				console.log(response);
+				res.status(response.status).json(response.json);
+			} else { // we assume that everything is hunky dory
+				setHotelObject(hotel, req.body);
+				hotel.save(function(err, updatedHotel) {
+					if (err) {
+						res.status(500).json(err);
+					} else {
+						res.status(204).json();
+					}
+				});
+			}
 		});
-	} else {
-		res.status(400).json({
-			message: "Required data missing from body"
-		});
-		console.log(req.body);
-	}
+};
+
+module.exports.hotelsDeleteOne = function(req, res) {
+	var hotelId = req.params.hotelId;
+
+	Hotel.findByIdAndRemove(hotelId).exec(function(err, hotel) {
+		if (err) {
+			res.status(404).json(err);
+		} else {
+			res.status(204).json();
+		}
+	});
 };
 
 var runGeoQuery = function(req, res) {
 
 	var lat = parseFloat(req.query.lat);
 	var long = parseFloat(req.query.long);
+
+	if (isNaN(lat) || isNaN(long)) {
+		res.status(400).json({
+			"message": "latitude and/or longitude are bullshit"
+		});
+		return;
+	}
+
+	console.log("lat/long ", lat + "/" + long);
 
 	// a GeoJSON point
 	var point = {
@@ -93,11 +178,11 @@ var runGeoQuery = function(req, res) {
 		num: 5
 	};
 
-
 	Hotel.geoNear(point, geoOptions, function(err, results, statistics) {
 
 		if (err) {
 			console.log(err);
+			res.status(400).json(err);
 			return;
 		}
 		console.log('Geo results', results);
@@ -105,4 +190,20 @@ var runGeoQuery = function(req, res) {
 
 		res.status(200).json(results);
 	});
+};
+
+var setHotelObject = function(obj, reqBody) {
+	obj.name = reqBody.name;
+	obj.description = reqBody.description;
+	obj.stars = reqBody.stars;
+	obj.services = _splitArray(reqBody.services);
+	obj.photos = _splitArray(reqBody.photos);
+	obj.currency = reqBody.currency;
+	obj.location = {
+		address: reqBody.address,
+		coordinates: [
+			parseFloat(reqBody.long),
+			parseFloat(reqBody.lat)
+		]
+	};
 };
